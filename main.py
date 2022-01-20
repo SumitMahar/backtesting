@@ -7,20 +7,41 @@ import math
 import backtrader as bt
 
 
-# Utility function for rounding up to next hundred (eg: 33427 => 33500)
-def roundup_to_next_100(x):
-    return int(math.ceil(x/100)) * 100
+# Utility function for rounding up to the nearest hundred (eg: 33449 => 33400, 33451 => 33500)
+def round_to_nearest_100(x):
+    return int(round(x/100)) * 100
+
+
+def calculate_ce_strike(close):
+    # eg: if the close value is 35678 round it to 35700 and add 200
+    # so the strike will be 35900 CE
+    strike = round_to_nearest_100(close) + 200
+    return {'strike': strike, 'type': 'CE'}
+
+
+def calculate_pe_strike(close):
+    # eg: if the close value is 35678 round it to 35700 and add 200
+    # so the strike will be 35500 PE
+    strike = round_to_nearest_100(close) - 200
+    return {'strike': strike, 'type': 'PE'}
+
+
+def calculate_tp(high, low, percent, op_type):
+    '''
+        high: int (high of the mother candle)
+        low: int  (low of the mother candle)
+        percent: int
+        op_type: string ('CE or PE')
+    '''
+    tp = (high - low) * (percent/100)
+    if op_type == 'CE':
+        return high + tp
+    elif op_type == 'PE':
+        return high - tp
 
 
 # Strategy Class
 class InsideStrategyTest(bt.Strategy):
-    def log(self, text, dt=None):
-        '''logging function for the strategy'''
-        dt = dt or self.datas[0].datetime.date(0)
-        log_file = open('log_file.txt', 'a')
-        log_file.write(f"{dt}: {text}\n")
-        log_file.close()
-
     def __init__(self):
         # Keep a reference to the "open" "high" "low" "close" line in the data[0] dataseries
         self.dataopen = self.datas[0].open
@@ -28,40 +49,79 @@ class InsideStrategyTest(bt.Strategy):
         self.datalow = self.datas[0].low
         self.dataclose = self.datas[0].close
 
+    def log(self, text, dt=None):
+        '''logging function for the strategy'''
+        dt = dt or self.datas[0].datetime.date()
+        log_file = open('log_file.txt', 'a')
+        log_file.write(f"{dt}: {text}\n")
+        log_file.close()
+
     def next(self):
         self.log(
             f'open: {self.dataopen[0]}')
         self.log(f'high: {self.datahigh[0]}')
-        # open of baby should be higher than the close of mother
-        if (self.dataopen[0] > self.dataclose[-1]
-                # Close of baby should be lesser than open of the mother
-                    and self.dataclose[0] < self.dataopen[-1]
-                # High of baby should be lesser than the high of the mother
-                    and self.datahigh[0] < self.datahigh[-1]
-                    # Low of bbaby should be higher than the low of the mother
-                    and self.datalow[0] > self.datalow[-1]
-                ):
+
+        # Inside Candle logic
+        if (
+            # open of baby should be higher than the close of mother
+            self.dataopen[0] > self.dataclose[-1]
+            # Close of baby should be lesser than open of the mother
+            and self.dataclose[0] < self.dataopen[-1]
+            # High of baby should be lesser than the high of the mother
+            and self.datahigh[0] < self.datahigh[-1]
+            # Low of bbaby should be higher than the low of the mother
+            and self.datalow[0] > self.datalow[-1]
+        ):
             self.log('\n***Red Mother and Green Baby pattern found***')
             self.log(
-                f'***open0:{self.dataopen[0]} closep1:{self.dataclose[-1]} close0:{self.dataclose[0]} highp1:{self.datahigh[-1]} high0:{self.datahigh[0]} highp1:{self.datahigh[-1]} low0:{self.datalow[0]} lowp1{self.datalow[-1]}***\n')
+                f'***current candle open: {self.dataopen[0]} previous candle close: {self.dataclose[-1]} C C close: {self.dataclose[0]} prev C high: {self.datahigh[-1]} C C high: {self.datahigh[0]} prev C highp: {self.datahigh[-1]} C C low: {self.datalow[0]} prev C low: {self.datalow[-1]}***\n')
 
             self.buy()
+
+        elif (
             # open of mother should be lower than the close of the baby
-        elif (self.dataopen[-1] < self.dataclose[0]
-              # close of mother should be higher than open of the baby
-                and self.dataclose[-1] > self.dataopen[0]
-                # high of baby should be lwsser than the hight of the mother
-                and self.datahigh[0] < self.datahigh[-1]
-                # low of baby should be higher than the low of the mother
-                and self.datalow[0] > self.datalow[-1]
-              ):
+            self.dataopen[-1] < self.dataclose[0]
+            # close of mother should be higher than open of the baby
+            and self.dataclose[-1] > self.dataopen[0]
+            # high of baby should be lesser than the hight of the mother
+            and self.datahigh[0] < self.datahigh[-1]
+            # low of baby should be higher than the low of the mother
+            and self.datalow[0] > self.datalow[-1]
+        ):
             self.log('\n***Green Mother and Red Baby pattern found***')
+            self.sell()
+
+        # Engulfing Candle logic
+        # Green Engulfing
+        elif (
+            # `data[0]` represents current candle and `data[-1]` represents previous candle
+            # Open of the mother should be lower than the close of the baby
+            self.dataopen[0] < self.dataclose[-1]
+            # Close of the mother should be higher than the open of the baby
+            and self.dataclose[0] > self.dataopen[-1]
+            # High of mother should be higher than the high of the baby
+            and self.datahigh[0] > self.datahigh[-1]
+
+        ):  # logic for what to do after the Green Engulfing pattern is found goes here
+            self.log('\n***Green Engulfing pattern found***')
+            self.buy()
+        # Red Engulfing
+        elif (
+            # Open of the mother should be higher than the close of the baby
+            self.dataopen[0] > self.dataclose[-1]
+            # Close of the mother should be lower than the open of the baby
+            and self.dataclose[0] < self.dataopen[-1]
+            # High of mother should be higher than the high of the baby
+            and self.datahigh[0] > self.datahigh[-1]
+        ):
+            self.log('\n***Red Engulfing pattern found***')
             self.sell()
 
 
 if __name__ == '__main__':
     # creating a `Cerebro` instance
     cerebro = bt.Cerebro()
+    # initial dummy cash
     cerebro.broker.setcash(200000)
 
     # Adding Strategy
@@ -86,7 +146,7 @@ if __name__ == '__main__':
             low=6,
             close=7,
             volume=8,
-            reverse=False
+            reverse=True
         )
 
         cerebro.adddata(data)
